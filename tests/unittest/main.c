@@ -100,6 +100,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject", xqc_test_conn_early_data_reject)
         || !CU_add_test(pSuite, "xqc_test_conn_early_data_reject_flow_ctl", xqc_test_conn_early_data_reject_flow_ctl)
         || !CU_add_test(pSuite, "xqc_test_conn_stream_unsent_cap", xqc_test_conn_stream_unsent_cap)
+        || !CU_add_test(pSuite, "xqc_test_conn_closed_path_perf_class", xqc_test_conn_closed_path_perf_class)
+        || !CU_add_test(pSuite, "xqc_test_conn_open_path_perf_class", xqc_test_conn_open_path_perf_class)
         /* RFC 9000 §20.1 CRYPTO_ERROR dynamic construction */
         || !CU_add_test(pSuite, "xqc_test_conn_tls_error_cb_constructs_crypto_error", xqc_test_conn_tls_error_cb_constructs_crypto_error)
         || !CU_add_test(pSuite, "xqc_test_conn_crypto_error_base_value", xqc_test_conn_crypto_error_base_value)
@@ -137,6 +139,12 @@ main(int argc, char *argv[])
                         xqc_test_tp_value_not_longer_than_len)
         || !CU_add_test(pSuite, "xqc_test_tp_value_matches_len_decodes",
                         xqc_test_tp_value_matches_len_decodes)
+        || !CU_add_test(pSuite, "xqc_test_max_ack_delay_default_when_absent",
+                        xqc_test_max_ack_delay_default_when_absent)
+        || !CU_add_test(pSuite, "xqc_test_max_ack_delay_valid_boundary",
+                        xqc_test_max_ack_delay_valid_boundary)
+        || !CU_add_test(pSuite, "xqc_test_max_ack_delay_invalid_boundary",
+                        xqc_test_max_ack_delay_invalid_boundary)
         || !CU_add_test(pSuite, "xqc_test_tp_cid_overflow", xqc_test_tp_cid_overflow)
         || !CU_add_test(pSuite, "xqc_test_check_transport_params_cids", xqc_test_check_transport_params_cids)
         || !CU_add_test(pSuite, "xqc_test_engine_packet_process", xqc_test_engine_packet_process)

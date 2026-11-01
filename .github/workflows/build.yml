@@ -244,3 +244,142 @@ jobs:
         # -Wno-dangling-pointer under -Werror, which clang rejects.
         cmake -DPLATFORM=mac -DCMAKE_C_FLAGS="-Wno-unknown-warning-option" -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
         make -j
+
+  case-loop:
+
+    name: Case loop (${{ matrix.name }})
+
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: c727-a
+            cases: "stream_reassembly_cap_happy:60"
+            hogs: 0
+          - name: c727-b
+            cases: "stream_reassembly_cap_happy:60"
+            hogs: 0
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 1
+        submodules: 'recursive'
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        sudo apt-get -o Acquire::Retries=3 update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get -o Acquire::Retries=3 install -y \
+            build-essential libcunit1 libcunit1-dev libevent-dev zstd
+
+    - name: Build BoringSSL
+      run: |
+        cd ./third_party/boringssl
+        mkdir -p build
+        cd build
+        cmake -DBUILD_SHARED_LIBS=0 -DCMAKE_C_FLAGS="-fPIC" -DCMAKE_CXX_FLAGS="-fPIC" ..
+        make -j4 ssl crypto
+
+    - name: Build XQUIC
+      run: |
+        SSL_TYPE_STR="boringssl"
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        SSL_INC_PATH_STR="${PWD}/third_party/boringssl/include"
+        SSL_LIB_PATH_STR="${PWD}/third_party/boringssl/build/libssl.a;${PWD}/third_party/boringssl/build/libcrypto.a"
+        mkdir -p build
+        cd build
+        cmake -DGCOV=on -DCMAKE_BUILD_TYPE=Debug -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DXQC_ENABLE_EVENT_LOG=1 -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} -DXQC_ENABLE_UNLIMITED=1 -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 -DXQC_ENABLE_FEC=1 -DXQC_ENABLE_XOR=1 -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 ..
+        make -j4 test_client test_server
+
+    - name: Cases alone, repeated
+      run: |
+        cd build
+        openssl req -newkey rsa:2048 -x509 -nodes -keyout server.key -new -out server.crt -subj /CN=test.xquic.com
+        mkdir -p ../loopfail ../pclogs
+        hogs=""
+        for k in $(seq 1 ${{ matrix.hogs || 0 }}); do
+          sh -c 'while :; do :; done' &
+          hogs="${hogs} $!"
+        done
+        echo "cpu hogs:${hogs:- none} nproc=$(nproc)"
+        for spec in ${{ matrix.cases }}; do
+          name="${spec%%:*}"
+          n="${spec##*:}"
+          pass=0; fail=0; retried=0; spc=0; cpc=0
+          for i in $(seq 1 "${n}"); do
+            rd="${PWD}/loop/${name}/it${i}"
+            CASE_TEST_RUN_DIR="${rd}" XQC_BUILD_DIR="${PWD}" \
+              bash ../scripts/case_test.sh --execute --case "${name}" \
+              > ../one.txt 2>&1 || true
+            wd="$(find "${rd}" -mindepth 2 -maxdepth 2 -type d -name "${name}" | head -1)"
+            r=0
+            if grep -q "retry 2" ../one.txt "${wd}/case_test.log" 2> /dev/null; then
+              r=1
+              retried=$((retried + 1))
+            fi
+            s=0
+            c=0
+            if [ -f "${wd}/slog" ]; then
+              s=$(grep -c 'persistent_congestion|reset_rtt' "${wd}/slog" || true)
+            fi
+            if [ -f "${wd}/clog" ]; then
+              c=$(grep -c 'persistent_congestion|reset_rtt' "${wd}/clog" || true)
+            fi
+            spc=$((spc + s))
+            cpc=$((cpc + c))
+            if grep -Eq "^\[case-test:[^]]+\] ${name} >>>>>>>> pass:1$" ../one.txt; then
+              pass=$((pass + 1))
+              res=pass
+            else
+              fail=$((fail + 1))
+              res=FAIL
+              d="../loopfail/${name}-it${i}"
+              mkdir -p "${d}"
+              cp ../one.txt "${d}/runner.txt"
+              for f in clog slog stdlog case_test.log; do
+                if [ -f "${wd}/${f}" ]; then
+                  zstd -q -6 "${wd}/${f}" -o "${d}/${f}.zst"
+                fi
+              done
+            fi
+            if [ $((s + c)) -gt 0 ] && [ "$(ls ../pclogs 2> /dev/null | wc -l)" -lt 10 ]; then
+              d="../pclogs/${name}-it${i}"
+              mkdir -p "${d}"
+              for f in clog slog; do
+                if [ -f "${wd}/${f}" ]; then
+                  zstd -q -6 "${wd}/${f}" -o "${d}/${f}.zst"
+                fi
+              done
+            fi
+            echo "iter ${name} ${i} ${res} retried=${r} srv_pc=${s} cli_pc=${c}"
+            rm -rf "${rd}"
+          done
+          echo "TOTAL case=${name} pass=${pass} fail=${fail} first_attempt_failed=${retried} srv_pc_resets=${spc} cli_pc_resets=${cpc}"
+        done
+        if [ -n "${hogs}" ]; then
+          kill ${hogs}
+          uptime
+        fi
+
+    - name: Upload failing logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: loopfail-${{ matrix.name }}
+        path: loopfail
+        retention-days: 3
+        if-no-files-found: ignore
+
+    - name: Upload persistent congestion logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: pclogs-${{ matrix.name }}
+        path: pclogs
+        retention-days: 3
+        if-no-files-found: ignore

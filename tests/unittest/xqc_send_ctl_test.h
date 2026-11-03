@@ -77,4 +77,7 @@ void xqc_test_send_ctl_persistent_congestion_recycled_probe(void);
 
 void xqc_test_send_ctl_persistent_congestion_ack_range_limit(void);
 
+void xqc_test_send_ctl_pc_pto_copies(void);
+void xqc_test_send_ctl_pc_pto_spurious(void);
+
 #endif

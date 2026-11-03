@@ -497,6 +497,10 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite,
             "xqc_test_send_ctl_persistent_congestion_ack_range_limit",
             xqc_test_send_ctl_persistent_congestion_ack_range_limit)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_pc_pto_copies",
+                        xqc_test_send_ctl_pc_pto_copies)
+        || !CU_add_test(pSuite, "xqc_test_send_ctl_pc_pto_spurious",
+                        xqc_test_send_ctl_pc_pto_spurious)
         /* RFC 9000 §6.2 Version Negotiation abort suite */
         || !CU_add_test(pSuite, "xqc_test_vn_abort_on_unsupported_version", xqc_test_vn_abort_on_unsupported_version)
         || !CU_add_test(pSuite, "xqc_test_vn_downgrade_protection_when_version_matches", xqc_test_vn_downgrade_protection_when_version_matches)

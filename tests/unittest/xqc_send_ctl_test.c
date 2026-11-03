@@ -1191,3 +1191,163 @@ xqc_test_send_ctl_persistent_congestion_ack_range_limit(void)
         xqc_engine_destroy(conn->engine);
     }
 }
+
+/*
+ * Persistent congestion over PTO copies, adapted from the tests of
+ * mp0rta/xquic#130. As in RFC 9002 7.6.3: srtt 10 ms, rttvar 1 ms and
+ * max_ack_delay 6 ms make a duration of 60 ms; the handshake is confirmed
+ * and the RTT sampled before t0.
+ */
+#define XQC_TEST_PC_T0          1000000
+#define xqc_test_pc_ms(ms)      (XQC_TEST_PC_T0 + (xqc_usec_t) (ms) * 1000)
+
+void xqc_timer_loss_detection_timeout(xqc_timer_type_t type, xqc_usec_t now,
+    void *user_data);
+
+static void
+xqc_test_pc_setup(xqc_path_ctx_t *path)
+{
+    xqc_connection_t *conn = path->parent_conn;
+    xqc_send_ctl_t *send_ctl = path->path_send_ctl;
+
+    conn->conn_flag |= XQC_CONN_FLAG_HANDSHAKE_CONFIRMED;
+    conn->remote_settings.max_ack_delay = 6;
+    send_ctl->ctl_srtt = 10000;
+    send_ctl->ctl_rttvar = 1000;
+    send_ctl->ctl_minrtt = 10000;
+    send_ctl->ctl_latest_rtt = 10000;
+    send_ctl->ctl_first_rtt_sample_time = XQC_TEST_PC_T0 - 1;
+}
+
+static void
+xqc_test_pc_ack(xqc_path_ctx_t *path, xqc_usec_t ms,
+    const xqc_pktno_range_t *ranges, unsigned n_ranges)
+{
+    xqc_ack_info_t ack_info;
+
+    memset(&ack_info, 0, sizeof(ack_info));
+    ack_info.pns = XQC_PNS_APP_DATA;
+    ack_info.path_id = path->path_id;
+    ack_info.n_ranges = n_ranges;
+    memcpy(ack_info.ranges, ranges, n_ranges * sizeof(ranges[0]));
+    ack_info.largest_acked = ranges[0].high;
+
+    CU_ASSERT_EQUAL(xqc_send_ctl_on_ack_received(path->path_send_ctl,
+                        path->path_pn_ctl, path->parent_conn->conn_send_queue,
+                        &ack_info, xqc_test_pc_ms(ms), XQC_FALSE),
+                    XQC_OK);
+}
+
+static xqc_bool_t
+xqc_test_pc_declared(xqc_path_ctx_t *path)
+{
+    return path->path_send_ctl->ctl_first_rtt_sample_time == 0
+           && path->path_send_ctl->ctl_srtt
+              == path->parent_conn->conn_settings.initial_rtt;
+}
+
+static void
+xqc_test_pc_sent(xqc_path_ctx_t *path, xqc_packet_out_t *po,
+    xqc_packet_number_t pkt_num, xqc_usec_t ms)
+{
+    xqc_send_queue_t *sq = path->parent_conn->conn_send_queue;
+
+    po->po_pkt.pkt_num = pkt_num;
+    po->po_sent_time = xqc_test_pc_ms(ms);
+    xqc_send_ctl_on_packet_sent(path->path_send_ctl, path->path_pn_ctl, po,
+                                po->po_sent_time);
+    xqc_send_queue_insert_unacked(po,
+        &sq->sndq_unacked_packets[XQC_PNS_APP_DATA], sq);
+}
+
+static void
+xqc_test_pc_send_stream(xqc_path_ctx_t *path, xqc_packet_number_t pkt_num,
+    xqc_usec_t ms)
+{
+    xqc_packet_out_t *po = xqc_packet_out_get(
+                               path->parent_conn->conn_send_queue);
+
+    CU_ASSERT_FATAL(po != NULL);
+    po->po_pkt.pkt_type = XQC_PTYPE_SHORT_HEADER;
+    po->po_pkt.pkt_pns  = XQC_PNS_APP_DATA;
+    po->po_path_id      = path->path_id;
+    po->po_frame_types  = XQC_FRAME_BIT_STREAM;
+    po->po_used_size    = 100;
+    xqc_test_pc_sent(path, po, pkt_num, ms);
+}
+
+static xqc_packet_number_t
+xqc_test_pc_pto(xqc_path_ctx_t *path, xqc_usec_t ms,
+    xqc_packet_number_t pkt_num)
+{
+    xqc_send_queue_t *sq = path->parent_conn->conn_send_queue;
+    xqc_list_head_t *pos, *next;
+    xqc_packet_out_t *po;
+
+    xqc_timer_loss_detection_timeout(XQC_TIMER_LOSS_DETECTION,
+                                     xqc_test_pc_ms(ms), path->path_send_ctl);
+    xqc_list_for_each_safe(pos, next, &sq->sndq_pto_probe_packets) {
+        po = xqc_list_entry(pos, xqc_packet_out_t, po_list);
+        CU_ASSERT_FATAL(po->po_origin != NULL);
+        xqc_send_queue_remove_probe(pos);
+        xqc_test_pc_sent(path, po, pkt_num++, ms);
+    }
+
+    return pkt_num;
+}
+
+/*
+ * Blackout on STREAM data: packets 1..n leave 1 ms apart, three PTOs copy
+ * packets again, the ACK of the last copies arrives: none of the other
+ * packets was acknowledged itself, and they span more than 60 ms, so RFC
+ * 9002 7.6.2 establishes persistent congestion.
+ */
+void
+xqc_test_send_ctl_pc_pto_copies(void)
+{
+    for (xqc_packet_number_t n = 4; n >= 2; n -= 2) {
+        xqc_connection_t *conn = test_engine_connect();
+        CU_ASSERT_FATAL(conn != NULL);
+        xqc_path_ctx_t *path = conn->conn_initial_path;
+        xqc_usec_t last = n - 1;
+        xqc_packet_number_t pn;
+
+        xqc_test_pc_setup(path);
+        for (pn = 1; pn <= n; pn++) {
+            xqc_test_pc_send_stream(path, pn, pn - 1);
+        }
+        pn = xqc_test_pc_pto(path, last + 20, n + 1);
+        pn = xqc_test_pc_pto(path, last + 60, pn);
+        pn = xqc_test_pc_pto(path, last + 140, pn);
+        CU_ASSERT_EQUAL(path->path_send_ctl->ctl_pto_count, 3);
+
+        xqc_pktno_range_t ack[] = {{.low = pn - 2, .high = pn - 1}};
+        xqc_test_pc_ack(path, last + 142, ack, 1);
+        CU_ASSERT(xqc_test_pc_declared(path));
+
+        xqc_engine_destroy(conn->engine);
+    }
+}
+
+/* abnormal: the original is acknowledged itself, late; a spurious PTO */
+void
+xqc_test_send_ctl_pc_pto_spurious(void)
+{
+    xqc_connection_t *conn = test_engine_connect();
+    CU_ASSERT_FATAL(conn != NULL);
+    xqc_path_ctx_t *path = conn->conn_initial_path;
+    xqc_packet_number_t pn;
+
+    xqc_test_pc_setup(path);
+    xqc_test_pc_send_stream(path, 1, 0);
+    pn = xqc_test_pc_pto(path, 20, 2);
+    pn = xqc_test_pc_pto(path, 62, pn);
+    pn = xqc_test_pc_pto(path, 145, pn);
+
+    xqc_pktno_range_t ack[] = {{.low = pn - 1, .high = pn - 1},
+                               {.low = 1, .high = 1}};
+    xqc_test_pc_ack(path, 147, ack, 2);
+    CU_ASSERT(!xqc_test_pc_declared(path));
+
+    xqc_engine_destroy(conn->engine);
+}

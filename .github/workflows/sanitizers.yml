@@ -10,7 +10,7 @@ name: Sanitizers
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-san-*' ]
   pull_request:
     branches: [ main ]
 

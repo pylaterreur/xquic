@@ -635,7 +635,7 @@ xqc_test_memory_pool_large_alignment(void)
 
 
 #define def_engine_ssl_config   \
-xqc_engine_ssl_config_t  engine_ssl_config;             \
+xqc_engine_ssl_config_t  engine_ssl_config = {0};       \
 engine_ssl_config.private_key_file = "./server.key";    \
 engine_ssl_config.cert_file = "./server.crt";           \
 engine_ssl_config.ciphers = XQC_TLS_CIPHERS;            \

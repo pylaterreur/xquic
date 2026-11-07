@@ -520,6 +520,9 @@ xqc_test_rep()
     for (int i = 0; i < header.value.iov_len; i++) {
         CU_ASSERT(value[i] == ((char *) header.value.iov_base)[i]);
     }
+    /* the header took over the buffers of the decoded strings */
+    xqc_free(header.name.iov_base);
+    xqc_free(header.value.iov_base);
 
     processed = xqc_rep_decode_field_line(ctx, buf->data + buf->consumed_len, buf->data_len - buf->consumed_len);
     CU_ASSERT(processed > 0);
@@ -715,10 +718,7 @@ xqc_test_stream()
     xqc_h3_stream_destroy(h3s);
     xqc_h3_conn_destroy(h3c);
     xqc_destroy_stream(stream);
-
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -865,10 +865,7 @@ xqc_test_h3_critical_stream_close()
     }
 
     xqc_h3_conn_destroy(h3c);
-
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -916,9 +913,7 @@ xqc_test_h3_second_stream_one(uint64_t stype, uint64_t expected_err_second)
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 static void
@@ -948,9 +943,7 @@ xqc_test_h3_push_stream_rejected(xqc_conn_type_t conn_type,
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) != 0);
 
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 void
@@ -997,9 +990,7 @@ xqc_test_h3_reserved_uni_stream_accepted()
     CU_ASSERT((conn->conn_flag & XQC_CONN_FLAG_ERROR) == 0);
 
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1201,10 +1192,7 @@ xqc_test_h3_recv_header_field_section_size()
     xqc_destroy_stream(stream);
 
     xqc_h3_conn_destroy(h3c);
-
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1300,9 +1288,7 @@ xqc_h3_msgerr_teardown(xqc_h3_stream_t *h3s, xqc_h3_conn_t *h3c,
     xqc_h3_stream_destroy(h3s);
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -1528,9 +1514,7 @@ xqc_test_h3_blocked_stream_reject_after_close()
     stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -2219,13 +2203,11 @@ xqc_test_h3_qpack_duplicate_uses_excessive_load()
     xqc_h3_stream_destroy(qdec_h3s);
     xqc_destroy_stream(qdec_stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
 
     xqc_monotonic_timestamp = saved_timestamp;
     xqc_h3_engine_set_max_dtable_capacity(conn->engine,
                                           XQC_QPACK_MAX_TABLE_CAPACITY);
+    xqc_engine_destroy(conn->engine);
 }
 
 
@@ -2763,9 +2745,7 @@ xqc_h3_ctrl_test_teardown(xqc_h3_stream_t *h3s, xqc_h3_conn_t *h3c,
     xqc_h3_stream_destroy(h3s);
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 /*
@@ -4314,9 +4294,7 @@ xqc_test_h3_missing_settings_one(uint64_t frame_type)
     xqc_h3_stream_destroy(h3s);
     xqc_destroy_stream(stream);
     xqc_h3_conn_destroy(h3c);
-    if (conn->alpn) {
-        xqc_free(conn->alpn);
-    }
+    xqc_engine_destroy(conn->engine);
 }
 
 void
@@ -4713,7 +4691,17 @@ xqc_test_h3_blocked_stream_limit_uses_local()
     /* Verify peer setting is UINT64_MAX (would have allowed if bug present) */
     CU_ASSERT(h3c->peer_h3_conn_settings.qpack_blocked_streams == XQC_H3_SETTINGS_UNSET);
 
-    /* cleanup: engine_destroy handles full teardown including h3c, h3s, streams */
+    /* the records point at h3s, and the test owns h3s and h3c */
+    if (bs1 != NULL) {
+        xqc_h3_conn_remove_blocked_stream(h3c, bs1);
+    }
+    if (bs2 != NULL) {
+        xqc_h3_conn_remove_blocked_stream(h3c, bs2);
+    }
+    stream->stream_flag |= XQC_STREAM_FLAG_DISCARDED;
+    xqc_h3_stream_destroy(h3s);
+    xqc_destroy_stream(stream);
+    xqc_h3_conn_destroy(h3c);
     xqc_engine_destroy(conn->engine);
 }
 
@@ -4866,6 +4854,7 @@ xqc_test_h3_settings_frame_size_limit()
                            &pctx, NULL);
     /* normal-sized SETTINGS frame should parse successfully */
     CU_ASSERT(ret >= 0);
+    xqc_h3_frm_reset_pctx(&pctx);
 }
 
 

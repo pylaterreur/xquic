@@ -41,6 +41,7 @@ typedef struct xqc_h3_blocked_stream_s {
     xqc_list_head_t          head;
     xqc_h3_stream_t         *h3s;
     uint64_t                 ricnt;
+    xqc_bool_t               cancelled;
 } xqc_h3_blocked_stream_t;
 
 xqc_h3_blocked_stream_t *
@@ -53,6 +54,7 @@ xqc_h3_blocked_stream_create(xqc_h3_stream_t *h3s, uint64_t ricnt)
     xqc_init_list_head(&blocked_stream->head);
     blocked_stream->h3s = h3s;
     blocked_stream->ricnt = ricnt;
+    blocked_stream->cancelled = XQC_FALSE;
     return blocked_stream;
 }
 
@@ -946,8 +948,24 @@ xqc_h3_conn_add_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_stream_t *h3s, uint64_
 void
 xqc_h3_conn_remove_blocked_stream(xqc_h3_conn_t *h3c, xqc_h3_blocked_stream_t *blocked_stream)
 {
+    if (!blocked_stream->cancelled) {
+        h3c->block_stream_count--;
+    }
     xqc_h3_blocked_stream_free(blocked_stream);
-    h3c->block_stream_count--;
+}
+
+/*
+ * the record stays in the list until the stream is destroyed: a stream
+ * may be cancelled while the list is walked to unblock streams
+ */
+void
+xqc_h3_conn_cancel_blocked_stream(xqc_h3_conn_t *h3c,
+    xqc_h3_blocked_stream_t *blocked_stream)
+{
+    if (!blocked_stream->cancelled) {
+        blocked_stream->cancelled = XQC_TRUE;
+        h3c->block_stream_count--;
+    }
 }
 
 void
@@ -977,7 +995,10 @@ xqc_h3_conn_process_blocked_stream(xqc_h3_conn_t *h3c)
     xqc_list_for_each_safe(pos, next, &h3c->block_stream_head) {
         xqc_h3_blocked_stream_t *blocked_stream = 
             xqc_list_entry(pos, xqc_h3_blocked_stream_t, head);
-        if (blocked_stream->ricnt <= known_received_count) {
+        if (blocked_stream->cancelled) {
+            continue;
+
+        } else if (blocked_stream->ricnt <= known_received_count) {
             xqc_int_t ret = xqc_h3_stream_process_blocked_stream(blocked_stream->h3s);
             if (ret < 0) {
                 return ret;

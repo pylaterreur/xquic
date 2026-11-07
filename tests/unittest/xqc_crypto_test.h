@@ -8,6 +8,7 @@
 void xqc_test_crypto();
 void xqc_test_crypto_unsupported_cipher_log(void);
 void xqc_test_hp_sample_boundary();
+void xqc_test_hp_mask_error_log();
 void xqc_test_rfc9001_chacha20_hp_mask();
 void xqc_test_rfc9001_chacha20_hp_unaligned_sample();
 void xqc_test_initial_salt_length();

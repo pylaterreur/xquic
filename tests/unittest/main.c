@@ -448,6 +448,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_packet_lost_log",
                         xqc_test_packet_lost_log)
         || !CU_add_test(pSuite, "xqc_test_common", xqc_test_common)
+        || !CU_add_test(pSuite, "xqc_test_memory_pool_large_alignment",
+                        xqc_test_memory_pool_large_alignment)
         || !CU_add_test(pSuite, "xqc_test_murmur_hash2", xqc_test_murmur_hash2)
         || !CU_add_test(pSuite, "xqc_test_murmur_hash2_high_bytes",
                         xqc_test_murmur_hash2_high_bytes)

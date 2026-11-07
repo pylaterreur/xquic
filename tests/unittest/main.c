@@ -813,6 +813,8 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_h3_request_create_alloc_failures",
                         xqc_test_h3_request_create_alloc_failures)
         || !CU_add_test(pSuite, "xqc_test_stable", xqc_test_stable)
+        || !CU_add_test(pSuite, "xqc_test_dtable_insert_alloc_failure",
+                        xqc_test_dtable_insert_alloc_failure)
         || !CU_add_test(pSuite, "xqc_test_dtable", xqc_test_dtable)
         || !CU_add_test(pSuite, "xqc_test_dtable_evicted_entries",
                         xqc_test_dtable_evicted_entries)

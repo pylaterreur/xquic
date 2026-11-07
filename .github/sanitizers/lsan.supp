@@ -1,0 +1,9 @@
+# LeakSanitizer suppressions of the Sanitizers workflow.
+leak:xqc_server_accept
+leak:xqc_demo_svr_hq_req_create_notify
+leak:xqc_demo_svr_h3_request_create_notify
+leak:xqc_demo_cli_init_scmr
+leak:xqc_demo_cli_init_user_path
+leak:xqc_client_path_removed
+leak:xqc_h3_ext_bytestream_save_data_to_buf
+leak:xqc_h3_ext_bytestream_data_buf_merge

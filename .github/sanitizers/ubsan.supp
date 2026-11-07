@@ -1,0 +1,9 @@
+# UndefinedBehaviorSanitizer suppressions of the Sanitizers workflow.
+nonnull-attribute:xqc_tls_ctx_register_alpn
+nonnull-attribute:xqc_client_create_tls
+nonnull-attribute:xqc_stream_recv
+nonnull-attribute:xqc_client_stream_close_notify
+nonnull-attribute:xqc_client_request_close_notify
+nonnull-attribute:xqc_client_timeout_callback
+nonnull-attribute:xqc_vsprintf
+shift-base:xqc_recv_timestamps_info_add_pkt

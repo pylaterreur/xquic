@@ -9,7 +9,7 @@ name: Platforms
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-plat-*' ]
   pull_request:
     branches: [ main ]
 

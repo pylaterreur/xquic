@@ -1,0 +1,204 @@
+name: Static analysis exploration 2
+
+# Fork-only exploration: runs each analyzer over the sources and uploads the
+# full output; never fails on findings.
+
+on:
+  push:
+    branches: [ 'ci-sax2-*' ]
+
+permissions:
+  contents: read
+
+jobs:
+
+  analyze:
+
+    name: ${{ matrix.tool }} on ${{ matrix.os }}${{ matrix.container && ' in ' || '' }}${{ matrix.container }}
+
+    runs-on: ${{ matrix.os }}
+
+    container: ${{ matrix.container }}
+
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        shell: bash
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { tool: tidy-z3, os: ubuntu-24.04, container: 'debian:trixie', cc: clang-19 }
+        - { tool: cppcheck, os: ubuntu-24.04 }
+        - { tool: cppcheck, os: ubuntu-26.04 }
+        - { tool: iwyu, os: ubuntu-24.04, cc: clang-18 }
+        - { tool: iwyu, os: ubuntu-26.04, cc: clang-21 }
+        - { tool: fanalyzer, os: ubuntu-24.04, cc: gcc-14 }
+        - { tool: fanalyzer, os: ubuntu-26.04, cc: gcc-15 }
+        - { tool: census, os: ubuntu-26.04, cc: gcc-15, flags: gcc }
+        - { tool: census, os: ubuntu-26.04, cc: clang-21, flags: clang }
+        - { tool: census, os: ubuntu-24.04, cc: gcc-14, flags: gcc }
+        - { tool: census, os: ubuntu-24.04, cc: clang-20, flags: clang }
+
+    env:
+      XQC_TOOL: ${{ matrix.tool }}
+      XQC_CC: ${{ matrix.cc }}
+      XQC_FLAGS: ${{ matrix.flags }}
+
+    steps:
+    - name: Container setup
+      if: matrix.container
+      run: |
+        apt-get update -qq
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          git ca-certificates jq cmake make clang-19 clang-tidy-19 \
+          libcunit1-dev libevent-dev > /dev/null
+        ldd "$(command -v clang-tidy-19)" | grep -i -E 'z3|clang-cpp|LLVM' || true
+        ldd /usr/lib/llvm-19/lib/libLLVM.so.19.1 | grep -i z3 || true
+        git config --global --add safe.directory '*'
+
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Setup
+      if: ${{ !matrix.container }}
+      run: |
+        sudo apt-get update -qq
+        case "$XQC_TOOL" in
+          cppcheck) pkgs="cppcheck python3-pygments" ;;
+          iwyu) pkgs="iwyu $XQC_CC" ;;
+          fanalyzer|census) pkgs="$XQC_CC" ;;
+        esac
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          $pkgs libcunit1-dev libevent-dev > /dev/null
+        cppcheck --version || true
+        include-what-you-use --version || true
+        ls /usr/share/cppcheck/addons/ 2>/dev/null || true
+
+    - name: Configure XQUIC
+      run: |
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/libssl.a third_party/boringssl/build/libcrypto.a
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        build_type=Debug
+        extra=()
+        if [ "$XQC_TOOL" = census ]; then
+          build_type=Release
+          flags="-O2 -DNDEBUG $(grep -v '^#' ".github/explore/$XQC_FLAGS.flags" | tr '\n' ' ') -Wno-error"
+          extra=(-DCMAKE_C_FLAGS_RELEASE="$flags")
+        fi
+        cmake -S . -B build \
+          ${XQC_CC:+-DCMAKE_C_COMPILER=$XQC_CC} \
+          -DCMAKE_BUILD_TYPE="$build_type" \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          "${extra[@]}" \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DXQC_ENABLE_WEBTRANSPORT=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        mkdir -p build/src build/all
+        jq 'unique_by(.file)' build/compile_commands.json > build/all/compile_commands.json
+        jq '[.[] | select(.file | test("/src/"))] | unique_by(.file)' \
+          build/compile_commands.json > build/src/compile_commands.json
+
+    - name: Analyze
+      shell: bash
+      run: |
+        set +e
+        mkdir -p out
+        start=$(date +%s)
+        case "$XQC_TOOL" in
+          tidy-z3)
+            for z3 in false true; do
+              cat > out/tidy-z3-$z3.yml <<EOF
+        Checks: '-*,clang-analyzer-*'
+        HeaderFilterRegex: '/(src|include)/'
+        ExcludeHeaderFilterRegex: '/third_party/'
+        CheckOptions:
+          clang-analyzer-crosscheck-with-z3: '$z3'
+        EOF
+              s=$(date +%s)
+              run-clang-tidy-19 -p build/src -j "$(nproc)" -quiet \
+                -clang-tidy-binary clang-tidy-19 \
+                -config-file out/tidy-z3-$z3.yml "${PWD}/src/" > out/tidy-z3-$z3.txt 2>&1
+              echo "z3=$z3 rc=$? elapsed=$(( $(date +%s) - s ))s"
+              grep -oE '^/[^ ]+:[0-9]+:[0-9]+: warning: .*\[clang-analyzer-[^]]+\]$' out/tidy-z3-$z3.txt \
+                | sort -u | grep -oE '\[clang-analyzer-[^]]+\]$' | sort | uniq -c | sort -rn
+            done
+            ;;
+          cppcheck)
+            addons=(--addon=cert --addon=misc --addon=threadsafety --addon=y2038)
+            for level in normal exhaustive; do
+              s=$(date +%s)
+              cppcheck --project=build/src/compile_commands.json -j "$(nproc)" -q \
+                -D__x86_64 -D__x86_64__ -D__linux__ -D__GNUC__=13 \
+                --platform=unix64 --std=c11 \
+                --enable=all --inline-suppr --suppress=missingIncludeSystem \
+                --check-level=$level "${addons[@]}" \
+                --template='{file}:{line}:{column}: {severity}: {message} [{id}]' \
+                --output-file=out/cppcheck-$level.txt
+              echo "level=$level rc=$? elapsed=$(( $(date +%s) - s ))s"
+              grep -oE '\[[-A-Za-z0-9_.]+\]$' out/cppcheck-$level.txt | sort | uniq -c | sort -rn | head -80
+            done
+            ;;
+          iwyu)
+            s=$(date +%s)
+            iwyu_tool -p build/src -j "$(nproc)" -- -Xiwyu --no_fwd_decls > out/iwyu-src.txt 2>&1 \
+              || iwyu_tool.py -p build/src -j "$(nproc)" -- -Xiwyu --no_fwd_decls > out/iwyu-src.txt 2>&1
+            echo "rc=$? elapsed=$(( $(date +%s) - s ))s"
+            grep -c 'should add these lines' out/iwyu-src.txt
+            grep -c 'should remove these lines' out/iwyu-src.txt
+            grep -E '^- #include' out/iwyu-src.txt | wc -l
+            grep -E '^#include' out/iwyu-src.txt | wc -l
+            tail -40 out/iwyu-src.txt
+            ;;
+          fanalyzer)
+            jq -c '.[]' build/all/compile_commands.json > build/cmds.jsonl
+            : > out/fanalyzer.txt
+            while IFS= read -r entry; do
+              dir=$(jq -r .directory <<< "$entry")
+              cmd=$(jq -r .command <<< "$entry" | sed -E 's# -o [^ ]+# -o /dev/null#')
+              (cd "$dir" && eval "$cmd -fanalyzer -Wno-error") >> out/fanalyzer.txt 2>&1 &
+              while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
+            done < build/cmds.jsonl
+            wait
+            grep -oE '^[^ :]+:[0-9]+:[0-9]+: warning: .*\[-Wanalyzer-[a-z-]+\]$' out/fanalyzer.txt \
+              | sort -u > out/fanalyzer-uniq.txt
+            wc -l < out/fanalyzer-uniq.txt
+            grep -oE '\[-Wanalyzer-[a-z-]+\]$' out/fanalyzer-uniq.txt | sort | uniq -c | sort -rn
+            ;;
+          census)
+            cmake --build build --parallel "$(nproc)" -- -k > out/build.log 2>&1
+            echo "build rc=$?"
+            grep -c 'warning:' out/build.log
+            ;;
+        esac
+        echo "elapsed: $(( $(date +%s) - start ))s"
+        exit 0
+
+    - name: Upload analysis
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: x2-${{ matrix.tool }}-${{ matrix.os }}-${{ matrix.cc }}
+        path: out/
+        retention-days: 5

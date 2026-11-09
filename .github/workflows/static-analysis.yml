@@ -9,7 +9,7 @@ name: Static analysis
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-sa-*' ]
   pull_request:
     branches: [ main ]
 

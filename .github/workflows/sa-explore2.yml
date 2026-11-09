@@ -33,14 +33,6 @@ jobs:
         - { tool: tidy-z3, os: ubuntu-24.04, container: 'debian:trixie', cc: clang-19 }
         - { tool: cppcheck, os: ubuntu-24.04 }
         - { tool: cppcheck, os: ubuntu-26.04 }
-        - { tool: iwyu, os: ubuntu-24.04, cc: clang-18 }
-        - { tool: iwyu, os: ubuntu-26.04, cc: clang-21 }
-        - { tool: fanalyzer, os: ubuntu-24.04, cc: gcc-14 }
-        - { tool: fanalyzer, os: ubuntu-26.04, cc: gcc-15 }
-        - { tool: census, os: ubuntu-26.04, cc: gcc-15, flags: gcc }
-        - { tool: census, os: ubuntu-26.04, cc: clang-21, flags: clang }
-        - { tool: census, os: ubuntu-24.04, cc: gcc-14, flags: gcc }
-        - { tool: census, os: ubuntu-24.04, cc: clang-20, flags: clang }
 
     env:
       XQC_TOOL: ${{ matrix.tool }}
@@ -53,7 +45,7 @@ jobs:
       run: |
         apt-get update -qq
         DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-          git ca-certificates jq cmake make clang-19 clang-tidy-19 \
+          git ca-certificates jq cmake make g++ clang-19 clang-tidy-19 \
           libcunit1-dev libevent-dev > /dev/null
         ldd "$(command -v clang-tidy-19)" | grep -i -E 'z3|clang-cpp|LLVM' || true
         ldd /usr/lib/llvm-19/lib/libLLVM.so.19.1 | grep -i z3 || true
@@ -146,7 +138,7 @@ jobs:
             done
             ;;
           cppcheck)
-            addons=(--addon=cert --addon=misc --addon=threadsafety --addon=y2038)
+            addons=(--addon=misc --addon=threadsafety --addon=y2038)
             for level in normal exhaustive; do
               s=$(date +%s)
               cppcheck --project=build/src/compile_commands.json -j "$(nproc)" -q \

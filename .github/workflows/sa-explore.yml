@@ -1,0 +1,139 @@
+name: Static analysis exploration
+
+# Fork-only exploration: runs each analyzer over the library and uploads the
+# full output; never fails on findings.
+
+on:
+  push:
+    branches: [ 'ci-sax-*' ]
+
+permissions:
+  contents: read
+
+jobs:
+
+  analyze:
+
+    name: ${{ matrix.tool }} on ${{ matrix.os }}
+
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+        - { tool: cppcheck, os: ubuntu-24.04 }
+        - { tool: cppcheck, os: ubuntu-26.04 }
+
+    env:
+      XQC_TOOL: ${{ matrix.tool }}
+      XQC_CC: ${{ matrix.cc }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Setup
+      run: |
+        sudo apt-get update -qq
+        case "$XQC_TOOL" in
+          cppcheck) pkgs="cppcheck" ;;
+          gcc-fanalyzer) pkgs="$XQC_CC" ;;
+          scan-build) pkgs="clang-20 clang-tools-20" ;;
+        esac
+        sudo env DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+          $pkgs libcunit1-dev libevent-dev > /dev/null
+        cppcheck --version || true
+
+    - name: Fetch BoringSSL headers
+      run: |
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/libssl.a third_party/boringssl/build/libcrypto.a
+
+    - name: Configure XQUIC
+      run: |
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build \
+          ${XQC_CC:+-DCMAKE_C_COMPILER=$XQC_CC} \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -DXQC_ENABLE_TESTING=1 \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DXQC_ENABLE_WEBTRANSPORT=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+
+    - name: Analyze
+      run: |
+        set +e
+        start=$(date +%s)
+        case "$XQC_TOOL" in
+          cppcheck)
+            jq '[.[] | select(.file | test("/src/"))] | unique_by(.file)' \
+              build/compile_commands.json > build/cc-src.json
+            cppcheck --project=build/cc-src.json -j "$(nproc)" \
+              -D__x86_64 -D__x86_64__ -D__linux__ -D__GNUC__=13 --platform=unix64 --std=c11 \
+              --enable=warning,style,performance,portability \
+              --inline-suppr --suppress=missingIncludeSystem \
+              --template='{file}:{line}:{column}: {severity}: {message} [{id}]' \
+              --output-file=analysis.txt -q
+            ;;
+          gcc-fanalyzer)
+            jq -c '.[] | select(.file | test("/src/")) | select(.output | test("xquic-static"))' \
+              build/compile_commands.json > build/src-cmds.jsonl
+            : > analysis.txt
+            while IFS= read -r entry; do
+              dir=$(jq -r .directory <<< "$entry")
+              cmd=$(jq -r .command <<< "$entry" | sed -E 's# -o [^ ]+# -o /dev/null#')
+              (cd "$dir" && eval "$cmd -fanalyzer -Wno-error") >> analysis.txt 2>&1 &
+              while [ "$(jobs -rp | wc -l)" -ge "$(nproc)" ]; do wait -n; done
+            done < build/src-cmds.jsonl
+            wait
+            ;;
+          scan-build)
+            SSL_PATH_STR="${PWD}/third_party/boringssl"
+            scan-build-20 --use-cc=clang-20 cmake -S . -B build-scan \
+              -DCMAKE_BUILD_TYPE=Debug \
+              -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DXQC_ENABLE_UNLIMITED=1 \
+              -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 -DXQC_ENABLE_FEC=1 \
+              -DXQC_ENABLE_XOR=1 -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 \
+              -DXQC_ENABLE_WEBTRANSPORT=1 -DXQC_ENABLE_EVENT_LOG=1 \
+              -DSSL_TYPE=boringssl -DSSL_PATH="${SSL_PATH_STR}" \
+              -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+              -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a" > /dev/null
+            scan-build-20 --use-cc=clang-20 -o scan-results \
+              make -C build-scan -j "$(nproc)" xquic-static > analysis.txt 2>&1
+            ;;
+        esac
+        echo "elapsed: $(( $(date +%s) - start ))s"
+        grep -cE 'warning|error|style|performance|portability' analysis.txt || true
+        grep -oE '\[[-A-Za-z0-9_.=]+\]$' analysis.txt | sort | uniq -c | sort -rn | head -60 || true
+        exit 0
+
+    - name: Upload analysis
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: analysis-${{ matrix.tool }}-${{ matrix.os }}
+        path: |
+          analysis.txt
+          scan-results/**
+        retention-days: 3

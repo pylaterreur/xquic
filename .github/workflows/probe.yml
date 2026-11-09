@@ -1,0 +1,43 @@
+name: Probe runners
+
+on:
+  push:
+    branches: [ 'ci-probe-*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    name: Probe ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-22.04, ubuntu-24.04, ubuntu-24.04-arm, ubuntu-26.04, macos-14, macos-15, macos-15-intel, macos-26, windows-2025 ]
+    steps:
+    - name: Probe
+      shell: bash
+      run: |
+        set +e +o pipefail
+        uname -a
+        cat /etc/os-release 2>/dev/null | head -3 || sw_vers || true
+        nproc 2>/dev/null || sysctl -n hw.ncpu || true
+        ls /usr/bin /usr/local/bin /opt/homebrew/bin 2>/dev/null | grep -E '^(gcc|g\+\+|clang|clang-tidy|clang-format|cppcheck|shellcheck|ccache|cmake|ninja|ruby|actionlint|codespell|qemu-[a-z0-9]+(-static)?|scan-build|iwyu|include-what-you-use)(-[0-9.]+)?$' | sort -u | tr '\n' ' '
+        echo
+        if command -v apt-cache > /dev/null; then
+          sudo apt-get update -qq > /dev/null 2>&1 || true
+          for p in gcc-9 gcc-10 gcc-11 gcc-12 gcc-13 gcc-14 gcc-15 clang-14 clang-15 clang-16 clang-17 clang-18 clang-19 clang-20 clang-21 clang-tidy-18 clang-tidy-20 cppcheck shellcheck gcc-multilib qemu-user qemu-user-static gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf gcc-riscv64-linux-gnu gcc-s390x-linux-gnu iwyu; do
+            printf '%s: ' "$p"; apt-cache policy "$p" 2>/dev/null | awk '/Candidate/ {print $2}'
+            echo
+          done | grep -v '^$'
+        fi
+        cmake --version | head -1 || true
+        gcc --version | head -1 || true
+        clang --version | head -1 || true
+        ccache --version | head -1 || true
+        shellcheck --version | sed -n 2p || true
+        cppcheck --version || true
+        ruby --version || true
+        if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then cat /etc/apt/sources.list.d/ubuntu.sources; fi

@@ -1,0 +1,54 @@
+name: FreeBSD probe
+
+# Fork-only experiment: build XQUIC and run the unit suite on FreeBSD 15.
+
+on:
+  push:
+    branches: [ 'ci-bsd-*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  freebsd:
+    name: FreeBSD 15
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+    - name: Build and test in a FreeBSD VM
+      uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+      with:
+        release: "15"
+        usesh: true
+        cpu: 4
+        mem: 8192
+        prepare: |
+          pkg install -y cmake git cunit libevent openssl
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/google/boringssl.git third_party/boringssl
+          cmake -S third_party/boringssl -B third_party/boringssl/build \
+            -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON > bssl.log 2>&1
+          cmake --build third_party/boringssl/build --parallel 4 --target ssl crypto >> bssl.log 2>&1 || { tail -40 bssl.log; exit 1; }
+          SSL_PATH_STR="$PWD/third_party/boringssl"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_PREFIX_PATH=/usr/local \
+            -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_ENABLE_EVENT_LOG=1 \
+            -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DXQC_ENABLE_UNLIMITED=1 \
+            -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 -DXQC_ENABLE_FEC=1 \
+            -DXQC_ENABLE_XOR=1 -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 \
+            -DXQC_ENABLE_WEBTRANSPORT=1 \
+            -DSSL_TYPE=boringssl -DSSL_PATH="$SSL_PATH_STR" \
+            -DSSL_INC_PATH="$SSL_PATH_STR/include" \
+            -DSSL_LIB_PATH="$SSL_PATH_STR/build/libssl.a;$SSL_PATH_STR/build/libcrypto.a" > xqc.log 2>&1 || { tail -40 xqc.log; exit 1; }
+          if ! cmake --build build --parallel 4 > xqcbuild.log 2>&1; then
+            grep -E "error|Error" xqcbuild.log | sort | uniq -c | sort -rn | head -40
+            exit 1
+          fi
+          cd build
+          openssl req -newkey rsa:2048 -x509 -nodes -keyout server.key -new -out server.crt -subj /CN=test.xquic.com > /dev/null 2>&1
+          ./tests/run_tests > unit.log 2>&1 || true
+          grep -E "tests +[0-9]+ |FAILED" unit.log | head -40

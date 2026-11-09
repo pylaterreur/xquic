@@ -15,7 +15,7 @@ name: Compilers
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-cc-*' ]
   pull_request:
     branches: [ main ]
 

@@ -1,0 +1,26 @@
+# Cppcheck findings on main, suppressed until the change in their comment.
+# One entry per check and file; Static analysis runs cppcheck with these.
+
+# xqc_fec_cc_decoder() tests the symbol size with && where it needs ||.
+incorrectLogicOperator:src/transport/xqc_fec_scheme.c
+
+# xqc_set_final_scheme() shifts 1 by a peer's scheme value of up to 32.
+shiftTooManyBits:src/transport/xqc_fec.c
+integerOverflowCond:src/transport/xqc_fec.c
+
+# xqc_conn_get_public_local_trans_settings() returns datagram_redundancy
+# uninitialized.
+
+# xqc_conn_path_metrics_print() checks a path for NULL after reading it.
+nullPointerRedundantCheck:src/transport/xqc_multipath.c
+
+# A name-only QPACK insertion logs its absent value as a variadic NULL.
+varFuncNullUB:src/http3/qpack/xqc_encoder.c
+
+# Release functions clear their own pointer argument after freeing it.
+uselessAssignmentPtrArg:src/common/xqc_log.h
+uselessAssignmentPtrArg:src/tls/xqc_tls_ctx.c
+uselessAssignmentPtrArg:src/transport/xqc_transport_params.c
+
+# xqc_int_2_str() starts a for loop with an expression that does nothing.
+constStatement:src/common/xqc_str.h

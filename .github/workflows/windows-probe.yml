@@ -1,0 +1,69 @@
+name: Windows probe
+
+# Fork-only experiment: does the library compile with MSVC and MinGW?
+
+on:
+  push:
+    branches: [ 'ci-win-*' ]
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    name: Windows ${{ matrix.toolchain }}
+    runs-on: windows-2025
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        toolchain: [ msvc, mingw ]
+    defaults:
+      run:
+        shell: bash
+    steps:
+    - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Fetch BoringSSL headers
+      run: |
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/ssl.lib third_party/boringssl/build/crypto.lib
+
+    - name: Configure and build the static library
+      run: |
+        set +e
+        SSL_PATH_STR="$(cygpath -m "${PWD}")/third_party/boringssl"
+        if [ "${{ matrix.toolchain }}" = msvc ]; then
+          gen=(-A x64)
+        else
+          gen=(-G "MinGW Makefiles" -DCMAKE_C_COMPILER=gcc)
+        fi
+        cmake -S . -B build "${gen[@]}" \
+          -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DXQC_ENABLE_COPA=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/ssl.lib;${SSL_PATH_STR}/build/crypto.lib" \
+          > configure.log 2>&1
+        echo "configure rc=$?"
+        tail -20 configure.log
+        cmake --build build --target xquic-static --config Release -j 4 > build.log 2>&1
+        rc=$?
+        echo "build rc=$rc"
+        grep -E -i " error | error:|error C[0-9]+|fatal error" build.log | sort | uniq -c | sort -rn | head -60
+        grep -c -E -i "warning" build.log || true
+        exit 0
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+      with:
+        name: windows-${{ matrix.toolchain }}
+        path: |
+          configure.log
+          build.log
+        retention-days: 3

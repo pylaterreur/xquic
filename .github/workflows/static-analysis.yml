@@ -1,0 +1,168 @@
+name: Static analysis
+
+# Runs clang-tidy and cppcheck over the library sources (src/) and fails on
+# any finding. .github/static-analysis/ holds their configuration: the
+# clang-tidy checks, with those that still report findings on main and why
+# they stay off, and the cppcheck findings suppressed until they are fixed.
+# Neither analysis compiles anything: they need the BoringSSL headers and a
+# configured build tree only.
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  clang-tidy:
+
+    name: clang-tidy
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 30
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            clang-20 \
+            clang-tidy-20
+
+    - name: Configure XQUIC
+      run: |
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        # Nothing is linked: empty libraries satisfy the configure check.
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/libssl.a third_party/boringssl/build/libcrypto.a
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build \
+          -DCMAKE_C_COMPILER=clang-20 \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DXQC_ENABLE_WEBTRANSPORT=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        # The static and the shared library compile the same sources: keep
+        # one entry per source file.
+        mkdir -p build/clang-tidy
+        jq 'unique_by(.file)' build/compile_commands.json \
+          > build/clang-tidy/compile_commands.json
+
+    - name: Run clang-tidy
+      run: |
+        clang-tidy-20 --version
+        run-clang-tidy-20 -p build/clang-tidy -j "$(nproc)" -quiet \
+          -clang-tidy-binary clang-tidy-20 \
+          -config-file .github/static-analysis/clang-tidy.yml \
+          "${PWD}/src/"
+
+  cppcheck:
+
+    name: cppcheck
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 20
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      with:
+        persist-credentials: false
+
+    - name: Linux Setup
+      timeout-minutes: 5
+      run: |
+        apt_options=(
+          -o Acquire::Retries=3
+          -o Acquire::http::Timeout=30
+          -o Acquire::https::Timeout=30
+          -o DPkg::Lock::Timeout=60
+        )
+        sudo apt-get "${apt_options[@]}" update
+        sudo env DEBIAN_FRONTEND=noninteractive \
+          apt-get "${apt_options[@]}" install -y --no-install-recommends \
+            cppcheck
+
+    - name: Configure XQUIC
+      run: |
+        git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+        # Nothing is linked: empty libraries satisfy the configure check.
+        mkdir -p third_party/boringssl/build
+        touch third_party/boringssl/build/libssl.a third_party/boringssl/build/libcrypto.a
+        SSL_PATH_STR="${PWD}/third_party/boringssl"
+        cmake -S . -B build \
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+          -DCMAKE_BUILD_TYPE=Debug \
+          -DXQC_PRINT_SECRET=1 \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+          -DXQC_ENABLE_EVENT_LOG=1 \
+          -DXQC_ENABLE_BBR2=1 \
+          -DXQC_ENABLE_RENO=1 \
+          -DXQC_ENABLE_UNLIMITED=1 \
+          -DXQC_ENABLE_COPA=1 \
+          -DXQC_COMPAT_DUPLICATE=1 \
+          -DXQC_ENABLE_FEC=1 \
+          -DXQC_ENABLE_XOR=1 \
+          -DXQC_ENABLE_RSC=1 \
+          -DXQC_ENABLE_PKM=1 \
+          -DXQC_ENABLE_WEBTRANSPORT=1 \
+          -DSSL_TYPE=boringssl \
+          -DSSL_PATH="${SSL_PATH_STR}" \
+          -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+          -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+        mkdir -p build/cppcheck
+        jq 'unique_by(.file)' build/compile_commands.json \
+          > build/cppcheck/compile_commands.json
+
+    - name: Run cppcheck
+      run: |
+        cppcheck --version
+        # The compiler's own target macros: BoringSSL's headers stop at an
+        # #error without them.
+        cppcheck --project=build/cppcheck/compile_commands.json \
+          -j "$(nproc)" --quiet \
+          -D__x86_64 -D__x86_64__ -D__linux__ -D__GNUC__=13 \
+          --platform=unix64 --std=c11 \
+          --enable=warning,portability,performance \
+          --suppress=missingIncludeSystem \
+          --suppressions-list=.github/static-analysis/cppcheck.supp \
+          --error-exitcode=1 \
+          --template='{file}:{line}:{column}: {severity}: {message} [{id}]'

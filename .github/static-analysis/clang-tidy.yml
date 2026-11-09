@@ -1,0 +1,82 @@
+---
+# clang-tidy checks that report nothing on the library (src/) today. The
+# Static analysis workflow runs them over src/ with clang-tidy 20 and fails
+# on any finding, so none of these kinds of defect can come back. It passes
+# this file with --config-file, so a .clang-tidy of a developer's own is
+# left alone.
+#
+# Turned off, with the number of findings on main, until they are fixed or
+# shown to be false positives:
+# - clang-analyzer-core.CallAndMessage (2) and
+#   clang-analyzer-core.UndefinedBinaryOperatorResult (1): xqc_stream_send()
+#   reads ret uninitialized when it is called with no data and no FIN.
+# - clang-analyzer-unix.Malloc (8): xqc_write_http_priority() leaks its FEC
+#   buffer when dstcap is too small; the seven WebTransport reports follow
+#   a stream across the callback-depth release, which the analyzer cannot
+#   prove keeps it alive.
+# - clang-analyzer-core.NullDereference (5), clang-analyzer-deadcode.DeadStores
+#   (81), clang-analyzer-optin.* (11).
+# - bugprone-too-small-loop-variable (1), bugprone-suspicious-string-compare
+#   (1), bugprone-signed-char-misuse (1), misc-redundant-expression (1: the
+#   duplicated X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY test in xqc_tls.c),
+#   bugprone-inc-dec-in-conditions (6), bugprone-multi-level-implicit-pointer-
+#   conversion (8), bugprone-branch-clone (16), bugprone-switch-missing-
+#   default-case (29), misc-header-include-cycle (2),
+#   performance-no-int-to-ptr (3), cert-err33-c (5), cert-int09-c (9),
+#   readability-duplicate-include (6), readability-non-const-parameter (18),
+#   readability-redundant-declaration (18), readability-redundant-casting
+#   (21), readability-redundant-control-flow (26).
+# - Style-scale checks: bugprone-narrowing-conversions (297; the
+#   -Wconversion work), bugprone-implicit-widening-of-multiplication-result
+#   (133), bugprone-macro-parentheses (120), bugprone-reserved-identifier
+#   and its cert aliases (93: the _XQC_*_H_INCLUDED_ guards).
+# - Never: bugprone-easily-swappable-parameters,
+#   clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling
+#   (memcpy and memset), misc-include-cleaner, misc-no-recursion,
+#   misc-unused-parameters (callbacks).
+Checks: >-
+  -*,
+  bugprone-*,
+  -bugprone-branch-clone,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-implicit-widening-of-multiplication-result,
+  -bugprone-inc-dec-in-conditions,
+  -bugprone-macro-parentheses,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -bugprone-narrowing-conversions,
+  -bugprone-reserved-identifier,
+  -bugprone-signed-char-misuse,
+  -bugprone-suspicious-string-compare,
+  -bugprone-switch-missing-default-case,
+  -bugprone-too-small-loop-variable,
+  cert-*,
+  -cert-dcl37-c,
+  -cert-dcl51-cpp,
+  -cert-err33-c,
+  -cert-int09-c,
+  clang-analyzer-*,
+  -clang-analyzer-core.CallAndMessage,
+  -clang-analyzer-core.NullDereference,
+  -clang-analyzer-core.UndefinedBinaryOperatorResult,
+  -clang-analyzer-deadcode.DeadStores,
+  -clang-analyzer-optin.*,
+  -clang-analyzer-security.insecureAPI.DeprecatedOrUnsafeBufferHandling,
+  -clang-analyzer-unix.Malloc,
+  misc-*,
+  -misc-header-include-cycle,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -misc-redundant-expression,
+  -misc-unused-parameters,
+  performance-*,
+  -performance-no-int-to-ptr,
+  portability-*,
+  readability-misleading-indentation,
+  readability-redundant-*,
+  -readability-redundant-casting,
+  -readability-redundant-control-flow,
+  -readability-redundant-declaration
+WarningsAsErrors: '*'
+HeaderFilterRegex: '/(src|include)/'
+ExcludeHeaderFilterRegex: '/third_party/'
+...

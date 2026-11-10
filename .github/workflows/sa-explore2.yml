@@ -30,8 +30,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - { tool: cppcheck2, os: ubuntu-24.04 }
-        - { tool: cppcheck2, os: ubuntu-26.04 }
+        - { tool: census, os: ubuntu-26.04, cc: gcc-15, flags: gcc }
+        - { tool: census, os: ubuntu-26.04, cc: clang-21, flags: clang2 }
 
     env:
       XQC_TOOL: ${{ matrix.tool }}
@@ -208,7 +208,7 @@ jobs:
             grep -oE '\[-Wanalyzer-[a-z-]+\]$' out/fanalyzer-uniq.txt | sort | uniq -c | sort -rn
             ;;
           census)
-            cmake --build build --parallel "$(nproc)" -- -k > out/build.log 2>&1
+            cmake --build build --parallel "$(nproc)" -- -k -O > out/build.log 2>&1
             echo "build rc=$?"
             grep -c 'warning:' out/build.log
             ;;

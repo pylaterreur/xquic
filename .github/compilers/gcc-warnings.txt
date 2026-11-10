@@ -112,3 +112,6 @@
 #   -Wunused-label                  12    7
 #   -Wunused-function                7    3
 #   -Wunused-value                   5    1
+
+# fork test only: a warning with findings on main
+-Wshadow

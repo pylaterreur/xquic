@@ -34,6 +34,11 @@ xqc_gen_stream_id(xqc_connection_t *conn, xqc_stream_type_t type)
     return sid;
 }
 
+static int xqc_stream_sim_helper( int a,int b ){
+    if(a>b) return a;
+    return b;
+}
+
 void
 xqc_stream_ready_to_write(xqc_stream_t *stream)
 {

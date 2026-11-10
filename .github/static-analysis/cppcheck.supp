@@ -61,7 +61,6 @@ knownConditionTrueFalse:src/transport/xqc_transport_params.c
 knownConditionTrueFalse:src/webtransport/xqc_webtransport_h3_stream.c
 
 # xqc_fec_cc_decoder() tests the symbol size with && where it needs ||.
-incorrectLogicOperator:src/transport/xqc_fec_scheme.c
 
 # xqc_set_final_scheme() shifts 1 by a peer's scheme value of up to 32.
 shiftTooManyBits:src/transport/xqc_fec.c

@@ -47,7 +47,6 @@ Checks:
   - misc-*
   - -misc-header-include-cycle              # 2
   - -misc-include-cleaner                   # 3804
-  - -misc-redundant-expression              # 1: X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT_LOCALLY twice in xqc_tls.c
   - -misc-unused-parameters                 # 246: callbacks
   - performance-*
   - -performance-no-int-to-ptr              # 3

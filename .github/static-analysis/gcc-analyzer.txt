@@ -25,7 +25,6 @@
 
 # xqc_try_process_fec_decode() reads the repair symbol that
 # xqc_get_rpr_syb() returns as NULL.
-1 src/transport/xqc_frame_parser.c -Wanalyzer-null-dereference
 
 # xqc_recv_timestamps_info_create() writes to its calloc() result before it
 # checks it.

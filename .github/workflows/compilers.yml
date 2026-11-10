@@ -23,7 +23,7 @@ name: Compilers
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-cc2-*' ]
   pull_request:
     branches: [ main ]
 

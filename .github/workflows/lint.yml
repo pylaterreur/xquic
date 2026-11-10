@@ -9,7 +9,7 @@ name: Lint
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-fmt-*' ]
   pull_request:
     branches: [ main ]
 
@@ -140,7 +140,7 @@ jobs:
 
     name: clang-format
 
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' || startsWith(github.ref_name, 'ci-fmt-')
 
     runs-on: ubuntu-24.04
 

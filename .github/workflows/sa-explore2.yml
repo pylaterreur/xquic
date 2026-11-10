@@ -31,8 +31,6 @@ jobs:
       matrix:
         include:
         - { tool: tidy-z3, os: ubuntu-24.04, container: 'debian:trixie', cc: clang-19 }
-        - { tool: cppcheck, os: ubuntu-24.04 }
-        - { tool: cppcheck, os: ubuntu-26.04 }
 
     env:
       XQC_TOOL: ${{ matrix.tool }}
@@ -125,12 +123,14 @@ jobs:
         Checks: '-*,clang-analyzer-*'
         HeaderFilterRegex: '/(src|include)/'
         ExcludeHeaderFilterRegex: '/third_party/'
-        CheckOptions:
-          clang-analyzer-crosscheck-with-z3: '$z3'
         EOF
               s=$(date +%s)
+              # a global analyzer option reaches the analyzer through the
+              # compiler arguments only, not through CheckOptions
               run-clang-tidy-19 -p build/src -j "$(nproc)" -quiet \
                 -clang-tidy-binary clang-tidy-19 \
+                -extra-arg=-Xclang -extra-arg=-analyzer-config \
+                -extra-arg=-Xclang -extra-arg=crosscheck-with-z3=$z3 \
                 -config-file out/tidy-z3-$z3.yml "${PWD}/src/" > out/tidy-z3-$z3.txt 2>&1
               echo "z3=$z3 rc=$? elapsed=$(( $(date +%s) - s ))s"
               grep -oE '^/[^ ]+:[0-9]+:[0-9]+: warning: .*\[clang-analyzer-[^]]+\]$' out/tidy-z3-$z3.txt \

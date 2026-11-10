@@ -30,7 +30,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-        - { tool: tidy-z3, os: ubuntu-24.04, container: 'debian:trixie', cc: clang-19 }
+        - { tool: cppcheck2, os: ubuntu-24.04 }
+        - { tool: cppcheck2, os: ubuntu-26.04 }
 
     env:
       XQC_TOOL: ${{ matrix.tool }}
@@ -59,7 +60,7 @@ jobs:
       run: |
         sudo apt-get update -qq
         case "$XQC_TOOL" in
-          cppcheck) pkgs="cppcheck python3-pygments" ;;
+          cppcheck|cppcheck2) pkgs="cppcheck" ;;
           iwyu) pkgs="iwyu $XQC_CC" ;;
           fanalyzer|census) pkgs="$XQC_CC" ;;
         esac
@@ -151,6 +152,34 @@ jobs:
               echo "level=$level rc=$? elapsed=$(( $(date +%s) - s ))s"
               grep -oE '\[[-A-Za-z0-9_.]+\]$' out/cppcheck-$level.txt | sort | uniq -c | sort -rn | head -80
             done
+            ;;
+          cppcheck2)
+            common=(-j "$(nproc)" -q -D__x86_64 -D__x86_64__ -D__linux__ -D__GNUC__=13
+              --platform=unix64 --std=c11 --inline-suppr --suppress=missingIncludeSystem
+              --template='{file}:{line}:{column}: {severity}: {message} [{id}]')
+            # 1. full database in its build directory, src/ files only
+            s=$(date +%s)
+            cppcheck --project=build/compile_commands.json --file-filter='*/src/*' "${common[@]}" \
+              --enable=warning,style,performance,portability,information \
+              --output-file=out/c1-fulldb.txt
+            echo "c1 fulldb rc=$? elapsed=$(( $(date +%s) - s ))s"
+            grep -oE '\[[-A-Za-z0-9_.]+\]$' out/c1-fulldb.txt | sort | uniq -c | sort -rn | head -40
+            # 2. the filtered database, no addons
+            s=$(date +%s)
+            cppcheck --project=build/src/compile_commands.json "${common[@]}" \
+              --enable=warning,style,performance,portability,information \
+              --output-file=out/c2-srcdb.txt
+            echo "c2 srcdb rc=$? elapsed=$(( $(date +%s) - s ))s"
+            grep -oE '\[[-A-Za-z0-9_.]+\]$' out/c2-srcdb.txt | sort | uniq -c | sort -rn | head -40
+            # 3. the filtered database with the addons
+            s=$(date +%s)
+            cppcheck --project=build/src/compile_commands.json "${common[@]}" \
+              --enable=warning,style,performance,portability \
+              --addon=misc --addon=threadsafety --addon=y2038 \
+              --output-file=out/c3-addons.txt
+            echo "c3 addons rc=$? elapsed=$(( $(date +%s) - s ))s"
+            grep -oE '\[[-A-Za-z0-9_.]+\]$' out/c3-addons.txt | sort | uniq -c | sort -rn | head -40
+            head -3 build/src/compile_commands.json
             ;;
           iwyu)
             s=$(date +%s)

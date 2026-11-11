@@ -727,6 +727,10 @@ main(int argc, char *argv[])
                         xqc_test_h3_frame_created_log_no_headers)
         || !CU_add_test(pSuite, "xqc_test_h3_frame_created_log_truncated",
                         xqc_test_h3_frame_created_log_truncated)
+        || !CU_add_test(pSuite, "xqc_test_h3_priority_write",
+                        xqc_test_h3_priority_write)
+        || !CU_add_test(pSuite, "xqc_test_h3_priority_write_too_small",
+                        xqc_test_h3_priority_write_too_small)
         || !CU_add_test(pSuite, "xqc_test_h3_peer_settings_batch",
                         xqc_test_h3_peer_settings_batch)
         || !CU_add_test(pSuite, "xqc_test_h3_settings_frame_boundaries",

@@ -2530,21 +2530,13 @@ xqc_process_path_challenge_frame(xqc_connection_t *conn, xqc_packet_in_t *packet
             path->path_state, (size_t)XQC_PATH_CHALLENGE_DATA_LEN, path_challenge_data,
             xqc_dcid_str(conn->engine, &packet_in->pi_pkt.pkt_dcid));
 
-    /* draft-21 §3.1 ¶6 (G-P2): 1200B MTU MUST on validation receive.
-     * Gated on VALIDATING. On an ACTIVE path a sub-1200 challenge is
-     * answered: a peer validating our new address after NAT rebinding
-     * sends one when the anti-amplification limit allows no more, and
-     * RFC 9000 Section 8.2.1 forbids discarding it. */
-    if (packet_in->buf_size < XQC_QUIC_MIN_MSS
-        && path->path_state == XQC_PATH_STATE_VALIDATING)
-    {
-        xqc_log(conn->log, XQC_LOG_WARN,
-                "|G-P2 MTU validation failed|path_id:%ui|buf_size:%uz|min:%d|",
-                path->path_id, packet_in->buf_size, XQC_QUIC_MIN_MSS);
-        (void)xqc_path_request_abandon(path, TRA_PATH_UNSTABLE_OR_POOR);
-        return XQC_OK;
-    }
-
+    /*
+     * Answered whatever the size of its datagram, on a path still validating
+     * too (RFC 9000 Section 8.2.1). A peer short of anti-amplification budget
+     * sends its PATH_CHALLENGE unexpanded, on a new path or after NAT
+     * rebinding, and validates the 1200-byte path MTU later with an expanded
+     * one (draft-ietf-quic-multipath-21 Section 3.1).
+     */
     ret = xqc_write_path_response_frame_to_packet(conn, path, path_challenge_data);
     if (ret != XQC_OK) {
         xqc_log(conn->log, XQC_LOG_ERROR,

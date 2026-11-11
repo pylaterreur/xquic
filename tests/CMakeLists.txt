@@ -149,6 +149,7 @@ if(HAVE_CUNIT)
         ${UNIT_TEST_DIR}/xqc_wlb_test.c
         ${UNIT_TEST_DIR}/xqc_conn_reapply_test.c
         ${UNIT_TEST_DIR}/xqc_send_ctl_test.c
+        ${UNIT_TEST_DIR}/xqc_new_path_test.c
         ${UNIT_TEST_DIR}/xqc_pmtud_test.c
         ${UNIT_TEST_DIR}/xqc_path_outage_test.c
         ${UNIT_TEST_DIR}/xqc_path_requeue_test.c

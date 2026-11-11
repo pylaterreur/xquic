@@ -67,6 +67,7 @@
 #include "xqc_wlb_test.h"
 #include "xqc_conn_reapply_test.h"
 #include "xqc_send_ctl_test.h"
+#include "xqc_new_path_test.h"
 #include "xqc_pmtud_test.h"
 #include "xqc_path_outage_test.h"
 #include "xqc_path_requeue_test.h"
@@ -870,6 +871,21 @@ main(int argc, char *argv[])
                         "xqc_test_path_validation_timeout_"
                         "new_path_pto_dominates",
                         xqc_test_path_validation_timeout_new_path_pto_dominates)
+        || !CU_add_test(pSuite, "xqc_test_new_path_anti_amplification",
+                        xqc_test_new_path_anti_amplification)
+        || !CU_add_test(pSuite,
+                        "xqc_test_new_path_anti_amplification_resend",
+                        xqc_test_new_path_anti_amplification_resend)
+        || !CU_add_test(pSuite, "xqc_test_new_path_mtu_validation",
+                        xqc_test_new_path_mtu_validation)
+        || !CU_add_test(pSuite, "xqc_test_new_path_validated_by_both_ends",
+                        xqc_test_new_path_validated_by_both_ends)
+        || !CU_add_test(pSuite,
+                        "xqc_test_new_path_challenge_resent_unexpanded",
+                        xqc_test_new_path_challenge_resent_unexpanded)
+        || !CU_add_test(pSuite,
+                        "xqc_test_new_path_small_challenge_while_validating",
+                        xqc_test_new_path_small_challenge_while_validating)
         || !CU_add_test(pSuite,
                         "xqc_test_path_validation_timer_not_extended_by_packet",
                         xqc_test_path_validation_timer_not_extended_by_packet)
@@ -1202,7 +1218,7 @@ main(int argc, char *argv[])
         || !CU_add_test(pSuite, "xqc_test_mp21_max_path_id_grant_trigger_on_paths_blocked", xqc_test_mp21_max_path_id_grant_trigger_on_paths_blocked)
         || !CU_add_test(pSuite, "xqc_test_mp21_max_path_id_grant_skipped_at_max", xqc_test_mp21_max_path_id_grant_skipped_at_max)
         || !CU_add_test(pSuite, "xqc_test_mp21_max_path_id_grant_rate_limited", xqc_test_mp21_max_path_id_grant_rate_limited)
-        || !CU_add_test(pSuite, "xqc_test_mp21_path_challenge_1200b_validation", xqc_test_mp21_path_challenge_1200b_validation)
+        || !CU_add_test(pSuite, "xqc_test_mp21_path_challenge_small_on_validating_path", xqc_test_mp21_path_challenge_small_on_validating_path)
         || !CU_add_test(pSuite, "xqc_test_mp21_path_challenge_small_on_active_path", xqc_test_mp21_path_challenge_small_on_active_path)
         || !CU_add_test(pSuite, "xqc_test_mp21_loss_replay_should_suppress_stale", xqc_test_mp21_loss_replay_should_suppress_stale)
         || !CU_add_test(pSuite, "xqc_test_mp21_gp10_iteration_visits_all_unused", xqc_test_mp21_gp10_iteration_visits_all_unused)

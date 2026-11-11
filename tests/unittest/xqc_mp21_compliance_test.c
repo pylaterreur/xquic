@@ -1774,10 +1774,7 @@ xqc_test_mp21_max_path_id_grant_rate_limited(void)
 
 /* Forge a minimal PATH_CHALLENGE-bearing QUIC packet view, with the
  * UDP-datagram size faked via packet_in->buf_size. The wire payload
- * is the 1-byte frame type followed by 8 bytes of opaque data; the
- * receive-side MTU check inspects buf_size (the bytes-from-pos count)
- * not the parsed-payload length, so a short payload is sufficient to
- * trigger the validation.
+ * is the 1-byte frame type followed by 8 bytes of opaque data.
  */
 static void
 mp21_forge_path_challenge_packet_in(xqc_packet_in_t *pi, unsigned char *frame_buf,
@@ -1796,19 +1793,14 @@ mp21_forge_path_challenge_packet_in(xqc_packet_in_t *pi, unsigned char *frame_bu
     pi->pi_path_id = path_id;
 }
 
-/* G-P2 (draft-21 §3.1 ¶6): a PATH_CHALLENGE received on a datagram
- * smaller than the 1200B minimum MTU MUST cause the receiver to
- * explicitly close the path via PATH_ABANDON. */
+/* draft-21 §3.1 ¶6 and RFC 9000 Section 8.2.1: a sub-1200 PATH_CHALLENGE on
+ * a new path still validating (a peer short of anti-amplification budget,
+ * which validates the 1200-byte MTU later) is answered, and the path keeps
+ * validating. */
 void
-xqc_test_mp21_path_challenge_1200b_validation(void)
+xqc_test_mp21_path_challenge_small_on_validating_path(void)
 {
-    xqc_test_mp21_conn_params_t p = {
-        .local_max_path_id = 4,
-        .remote_max_path_id = 4,
-        .scid_len = 8,
-        .dcid_len = 8,
-    };
-    xqc_connection_t *conn = xqc_test_mp21_make_conn(&p);
+    xqc_connection_t *conn = test_engine_connect();
     CU_ASSERT_PTR_NOT_NULL_FATAL(conn);
     conn->enable_multipath = 1;
 
@@ -1820,17 +1812,18 @@ xqc_test_mp21_path_challenge_1200b_validation(void)
     /* RFC 9000 §19.17: PATH_CHALLENGE = 1 type byte + 8 data bytes. */
     unsigned char frame_buf[1 + XQC_PATH_CHALLENGE_DATA_LEN];
     xqc_packet_in_t pi;
-
-    /* Sub-1200 datagram → path state advances to CLOSING (explicit close). */
     mp21_forge_path_challenge_packet_in(&pi, frame_buf, sizeof(frame_buf),
-                                        /*fake_datagram_size=*/1199, path->path_id);
+                                        /*fake_datagram_size=*/38, path->path_id);
 
-    xqc_int_t ret = xqc_process_path_challenge_frame(conn, &pi);
-    CU_ASSERT_EQUAL(ret, XQC_OK);
-    CU_ASSERT(path->path_state >= XQC_PATH_STATE_CLOSING);
+    CU_ASSERT_EQUAL(xqc_process_path_challenge_frame(conn, &pi), XQC_OK);
+    xqc_packet_out_t *po =
+        xqc_test_find_packet_with_frame(conn, XQC_FRAME_BIT_PATH_RESPONSE);
+    CU_ASSERT_PTR_NOT_NULL_FATAL(po);
+    CU_ASSERT_EQUAL(po->po_path_id, path->path_id);
+    CU_ASSERT_EQUAL(path->path_state, XQC_PATH_STATE_VALIDATING);
 
     xqc_test_helper_path_destroy(path);
-    xqc_test_mp21_free_conn(conn);
+    xqc_engine_destroy(conn->engine);
 }
 
 /* RFC 9000 Section 8.2.1: a sub-1200 PATH_CHALLENGE on an ACTIVE path (a

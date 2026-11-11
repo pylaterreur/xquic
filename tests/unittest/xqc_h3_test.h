@@ -30,6 +30,8 @@ void xqc_test_h3_stream_send_buf_error_log(void);
 void xqc_test_h3_frame_created_log_headers(void);
 void xqc_test_h3_frame_created_log_no_headers(void);
 void xqc_test_h3_frame_created_log_truncated(void);
+void xqc_test_h3_priority_write(void);
+void xqc_test_h3_priority_write_too_small(void);
 void xqc_test_h3_peer_settings_batch(void);
 void xqc_test_h3_settings_frame_boundaries(void);
 void xqc_test_h3_settings_fragmented(void);

@@ -23,7 +23,7 @@ name: Compilers
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-fixb*' ]
   pull_request:
     branches: [ main ]
 

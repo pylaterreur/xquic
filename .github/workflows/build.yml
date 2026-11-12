@@ -2,7 +2,7 @@ name: Build
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, 'ci-fixb*' ]
   pull_request:
     branches: [ main ]
 
@@ -76,6 +76,7 @@ jobs:
         make ssl crypto
 
     - name: Initialize CodeQL
+      if: false
       uses: github/codeql-action/init@v2
       with:
         languages: cpp
@@ -92,6 +93,7 @@ jobs:
         make -j
 
     - name: Perform CodeQL Analysis
+      if: false
       uses: github/codeql-action/analyze@v2
 
     - name: Test

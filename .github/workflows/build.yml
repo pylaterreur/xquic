@@ -394,3 +394,52 @@ jobs:
         cd build
         cmake -DPLATFORM=mac -DSSL_TYPE=${SSL_TYPE_STR} -DSSL_PATH=${SSL_PATH_STR} -DSSL_INC_PATH=${SSL_INC_PATH_STR} -DSSL_LIB_PATH=${SSL_LIB_PATH_STR} ..
         make -j
+
+  build-freebsd:
+
+    name: Build and test on FreeBSD
+
+    runs-on: ubuntu-24.04
+
+    timeout-minutes: 40
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v2
+      with:
+        fetch-depth: 2
+
+    - name: Build and test in a FreeBSD VM
+      uses: vmactions/freebsd-vm@c46abacb49f09938ca4e1702d15d836285d694cc # v1.5.9
+      with:
+        release: "15"
+        usesh: true
+        cpu: 4
+        mem: 8192
+        prepare: |
+          pkg install -y cmake git cunit libevent
+        run: |
+          set -e
+          git clone --depth 1 https://github.com/google/boringssl.git ./third_party/boringssl
+          cmake -S third_party/boringssl -B third_party/boringssl/build \
+            -DBUILD_SHARED_LIBS=0 -DCMAKE_POSITION_INDEPENDENT_CODE=ON
+          cmake --build third_party/boringssl/build --parallel 4 --target ssl crypto
+          SSL_PATH_STR="${PWD}/third_party/boringssl"
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_PREFIX_PATH=/usr/local \
+            -DXQC_ENABLE_TESTING=1 -DXQC_PRINT_SECRET=1 -DXQC_SUPPORT_SENDMMSG_BUILD=1 \
+            -DXQC_ENABLE_EVENT_LOG=1 \
+            -DXQC_ENABLE_BBR2=1 -DXQC_ENABLE_RENO=1 -DXQC_ENABLE_UNLIMITED=1 \
+            -DXQC_ENABLE_COPA=1 -DXQC_COMPAT_DUPLICATE=1 -DXQC_ENABLE_FEC=1 \
+            -DXQC_ENABLE_XOR=1 -DXQC_ENABLE_RSC=1 -DXQC_ENABLE_PKM=1 \
+            -DXQC_ENABLE_WEBTRANSPORT=1 \
+            -DSSL_TYPE=boringssl -DSSL_PATH="${SSL_PATH_STR}" \
+            -DSSL_INC_PATH="${SSL_PATH_STR}/include" \
+            -DSSL_LIB_PATH="${SSL_PATH_STR}/build/libssl.a;${SSL_PATH_STR}/build/libcrypto.a"
+          cmake --build build --parallel 4
+          cd build
+          openssl req -newkey rsa:2048 -x509 -nodes -keyout server.key -new -out server.crt -subj /CN=test.xquic.com
+          ./tests/run_tests > ../xquic_test.log 2>&1 || true
+          grep -E "Run Summary|suites |tests |asserts " ../xquic_test.log
+          if grep -E "Test: .*FAILED" ../xquic_test.log; then exit 1; fi
+          grep -q "Run Summary" ../xquic_test.log

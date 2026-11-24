@@ -37,9 +37,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # alternatives: macos-latest and macos-15 stayed queued for more
-        # than 30 minutes in the run of the previous commit
-        os: [ macos-14, macos-13 ]
+        # with the test fixes of alibaba/xquic#1177: macos-26 is the image
+        # that macos-latest runs today (macos-26-arm64 20261117.0516.1)
+        os: [ macos-26, macos-15-intel ]
 
     steps:
     - name: Checkout repository

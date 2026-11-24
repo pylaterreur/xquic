@@ -10,7 +10,7 @@ name: macOS unit tests (fork probe)
 on:
   workflow_dispatch:
   push:
-    branches: [ 'try/macos-unittests' ]
+    branches: [ 'try/macos-unittests', 'try/macos-unittests-1177' ]
 
 permissions:
   contents: read

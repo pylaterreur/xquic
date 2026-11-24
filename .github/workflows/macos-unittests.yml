@@ -37,7 +37,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ macos-latest, macos-26, macos-15, macos-15-intel ]
+        # alternatives: macos-latest and macos-15 stayed queued for more
+        # than 30 minutes in the run of the previous commit
+        os: [ macos-14, macos-13 ]
 
     steps:
     - name: Checkout repository

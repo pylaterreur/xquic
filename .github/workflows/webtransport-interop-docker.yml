@@ -2,7 +2,7 @@ name: Publish XQUIC WebTransport image
 
 on:
   push:
-    branches: [main]
+    branches: [main, ci-actions-probe]
   workflow_dispatch:
 
 permissions:
@@ -12,19 +12,22 @@ concurrency:
   group: xquic-webtransport-image
   cancel-in-progress: false
 
+# probe only: publish to a local registry instead of ghcr.io/alibaba.
 env:
-  IMAGE_NAME: ghcr.io/alibaba/xquic/xquic-webtransport-interop
+  IMAGE_NAME: localhost:5000/probe/xquic-webtransport-interop
 
 jobs:
   publish:
-    if: >-
-      github.repository == 'alibaba/xquic' &&
-      github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
       packages: write
+    services:
+      registry:
+        image: registry:2
+        ports:
+          - 5000:5000
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -59,3 +62,6 @@ jobs:
             echo "Commit tag: ${image}"
             echo "Image digest: ${digest}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Show the registry logins (probe only)
+        run: jq '.auths | keys' ~/.docker/config.json

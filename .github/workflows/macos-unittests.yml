@@ -1,0 +1,93 @@
+name: macOS unit tests (fork probe)
+
+# Fork-only probe (pylaterreur/xquic, branch try/macos-unittests), not meant
+# for upstream: do the CUnit unit tests (tests/unittest, run_tests) build
+# and pass on macOS? The build-macos job of build.yml builds the library
+# alone (-DPLATFORM=mac, without XQC_ENABLE_TESTING). BoringSSL is built as
+# build-macos builds it; XQUIC gets the flags of "Build on Ubuntu" that make
+# sense on macOS (.github/macos-probe/probe.sh).
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ 'try/macos-unittests' ]
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  HOMEBREW_NO_AUTO_UPDATE: 1
+  HOMEBREW_NO_INSTALL_CLEANUP: 1
+  HOMEBREW_NO_ENV_HINTS: 1
+
+jobs:
+
+  unittests:
+
+    name: Unit tests on ${{ matrix.os }}
+
+    runs-on: ${{ matrix.os }}
+
+    timeout-minutes: 100
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ macos-latest, macos-26, macos-15, macos-15-intel ]
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 2
+        submodules: 'recursive'
+        persist-credentials: false
+
+    - name: Environment
+      run: bash .github/macos-probe/probe.sh env
+
+    - name: macOS Setup (CUnit, libevent)
+      id: deps
+      run: bash .github/macos-probe/probe.sh deps
+
+    - name: Build BoringSSL (as build-macos)
+      id: boringssl
+      run: bash .github/macos-probe/probe.sh boringssl
+
+    - name: Debug build (Build on Ubuntu flags) and unit tests
+      if: ${{ !cancelled() && steps.boringssl.outcome == 'success' }}
+      timeout-minutes: 60
+      run: bash .github/macos-probe/probe.sh variant debug
+
+    - name: Release build and unit tests
+      if: ${{ !cancelled() && steps.boringssl.outcome == 'success' }}
+      timeout-minutes: 60
+      run: |
+        bash .github/macos-probe/probe.sh variant release \
+          -DCMAKE_BUILD_TYPE=Release
+
+    - name: Debug build with XQC_SUPPORT_SENDMMSG_BUILD=1 (informational)
+      if: ${{ !cancelled() && steps.boringssl.outcome == 'success' }}
+      continue-on-error: true
+      timeout-minutes: 30
+      run: |
+        bash .github/macos-probe/probe.sh buildonly sendmmsg \
+          -DXQC_SUPPORT_SENDMMSG_BUILD=1 -DDISABLE_WARNINGS=1
+
+    - name: Summary
+      if: always()
+      run: bash .github/macos-probe/probe.sh summary
+
+    - name: Upload logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: macos-unittests-${{ matrix.os }}
+        path: |
+          logs/
+          build-*/compile_commands.json
+        retention-days: 7

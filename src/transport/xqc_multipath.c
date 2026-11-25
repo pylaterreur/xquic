@@ -1244,6 +1244,20 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
             return -XQC_EMP_NO_AVAIL_PATH_ID;
         }
 
+        /*
+         * draft-ietf-quic-multipath-21 Section 3.2.1 has PATHS_BLOCKED for
+         * an endpoint that has no unused path ID left. An unused path ID
+         * whose connection IDs are not usable yet, ours not acknowledged
+         * or the peer's not received, is no limit: the ready_to_create_path
+         * notification comes once they are, and PATHS_BLOCKED would only
+         * have the peer raise its limit for nothing, as after a handshake
+         * when a client opens its paths before the ACKs of its connection
+         * IDs have all arrived.
+         */
+        if (xqc_get_next_unused_path_cid_set(&conn->scid_set) != NULL) {
+            return -XQC_EMP_NO_AVAIL_PATH_ID;
+        }
+
         /* G-P16 (draft-21 §3.2.1 ¶7 / §4.7): we are unable to create a new
          * path because the path_id namespace is exhausted (peer has not
          * issued CIDs for higher path_ids, which only happens when the
@@ -1260,6 +1274,15 @@ xqc_conn_create_path(xqc_engine_t *engine, const xqc_cid_t *scid, uint64_t *new_
                 conn->last_paths_blocked_sent_us = now;
                 xqc_log(conn->log, XQC_LOG_INFO,
                         "|PATHS_BLOCKED sent|max_path_id:%ui|", observed_cap);
+
+                /*
+                 * Have the engine send it now, as for a new path below: on
+                 * a quiet connection it would otherwise wait for the next
+                 * timer, and so would the MAX_PATH_ID that answers it.
+                 */
+                xqc_engine_remove_wakeup_queue(engine, conn);
+                xqc_engine_add_active_queue(engine, conn);
+                xqc_engine_wakeup_once(engine);
             }
         }
 
